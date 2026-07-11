@@ -10,7 +10,7 @@ env:
   AWS_REGION: ap-southeast-2
   EB_APPLICATION_NAME: ${{ secrets.EB_APPLICATION_NAME }}
   EB_ENVIRONMENT_NAME: ${{ secrets.EB_ENVIRONMENT_NAME }}
-  S3_BUCKET: ${{ secrets.S3_BUCKET }}
+  S3_BUCKET: elasticbeanstalk-ap-southeast-2-676591241230
 
 jobs:
   deploy:
@@ -27,17 +27,36 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-southeast-2
 
+      - name: Validate deployment settings
+        run: |
+          if [ -z "${EB_APPLICATION_NAME}" ]; then
+            echo "EB_APPLICATION_NAME is missing"
+            exit 1
+          fi
+
+          if [ -z "${EB_ENVIRONMENT_NAME}" ]; then
+            echo "EB_ENVIRONMENT_NAME is missing"
+            exit 1
+          fi
+
+          if [ -z "${S3_BUCKET}" ]; then
+            echo "S3_BUCKET is missing"
+            exit 1
+          fi
+
       - name: Create deployment ZIP
         run: |
-          zip -r backend-${GITHUB_SHA}.zip . \
+          zip -r "backend-${GITHUB_SHA}.zip" . \
             -x ".git/*" \
             -x ".github/*" \
-            -x "node_modules/*"
+            -x "node_modules/*" \
+            -x "*.zip"
 
       - name: Upload ZIP to S3
         run: |
-          aws s3 cp backend-${GITHUB_SHA}.zip \
-            s3://${S3_BUCKET}/backend-${GITHUB_SHA}.zip
+          aws s3 cp \
+            "backend-${GITHUB_SHA}.zip" \
+            "s3://${S3_BUCKET}/backend-${GITHUB_SHA}.zip"
 
       - name: Create Elastic Beanstalk application version
         run: |
@@ -46,7 +65,8 @@ jobs:
           aws elasticbeanstalk create-application-version \
             --application-name "${EB_APPLICATION_NAME}" \
             --version-label "${VERSION_LABEL}" \
-            --source-bundle S3Bucket="${S3_BUCKET}",S3Key="backend-${GITHUB_SHA}.zip"
+            --source-bundle \
+            S3Bucket="${S3_BUCKET}",S3Key="backend-${GITHUB_SHA}.zip"
 
       - name: Deploy application version
         run: |
@@ -55,3 +75,10 @@ jobs:
           aws elasticbeanstalk update-environment \
             --environment-name "${EB_ENVIRONMENT_NAME}" \
             --version-label "${VERSION_LABEL}"
+
+      - name: Wait for deployment
+        run: |
+          aws elasticbeanstalk wait environment-updated \
+            --environment-names "${EB_ENVIRONMENT_NAME}"
+
+          echo "Deployment completed successfully"
